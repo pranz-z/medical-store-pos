@@ -187,7 +187,10 @@ export const discountTypes = sqliteTable(
     updatedAt: updatedAt(),
   },
   (table) => [
-    check("discount_types_percent_bp_check", sql`${table.percentBp} >= 0 and ${table.percentBp} <= 10000`),
+    check(
+      "discount_types_percent_bp_check",
+      sql`${table.percentBp} >= 0 and ${table.percentBp} <= 10000`,
+    ),
     check(
       "discount_types_tax_treatment_check",
       sql`${table.taxTreatment} in ('standard', 'vat_exempt')`,
