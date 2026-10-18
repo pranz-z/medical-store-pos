@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { check, index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
 import { users } from "./auth";
-import { createdAt, primaryId, updatedAt } from "./helpers";
+import { createdAt, instant, primaryId, updatedAt } from "./helpers";
 
 /**
  * System tables: settings, audit log, rate limits (spec §5.1).
@@ -45,6 +45,35 @@ export const auditLog = sqliteTable(
   (table) => [
     index("audit_log_entity_idx").on(table.entity, table.entityId, table.at),
     index("audit_log_user_idx").on(table.userId, table.at),
+  ],
+);
+
+export const approvalTokens = sqliteTable(
+  "approval_tokens",
+  {
+    id: primaryId(),
+    /** Manager/owner who approved (verified by PIN, never the requester). */
+    approverId: text("approver_id")
+      .notNull()
+      .references(() => users.id),
+    /** User whose action is being approved. */
+    requesterId: text("requester_id")
+      .notNull()
+      .references(() => users.id),
+    /** Action class, e.g. `adjustment.threshold`, `sale.discount_over_limit`. */
+    action: text("action").notNull(),
+    /** SHA-256 of the canonical request payload — token is bound to it. */
+    payloadHash: text("payload_hash").notNull(),
+    reason: text("reason"),
+    /** UTC epoch ms; tokens are short-lived (~5 min). */
+    expiresAt: instant("expires_at").notNull(),
+    /** Set on consumption; a conditional UPDATE enforces single use. */
+    usedAt: instant("used_at"),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    index("approval_tokens_lookup_idx").on(table.action, table.requesterId, table.expiresAt),
+    index("approval_tokens_approver_idx").on(table.approverId, table.createdAt),
   ],
 );
 

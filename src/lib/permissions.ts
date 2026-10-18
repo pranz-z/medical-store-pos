@@ -18,6 +18,10 @@ import type { Role } from "@/lib/roles";
  * | inventory.adjust      |  x    |    x    |     x      |         |         |
  * | catalog.import        |  x    |    x    |            |         |         |
  * | audit.view            |  x    |         |            |         |    x    |
+ * | pos.sell              |  x    |    x    |     x      |   x     |         |
+ * | sales.view            |  x    |    x    |     x      |   x     |    x    |
+ * | shifts.view_all       |  x    |    x    |            |         |    x    |
+ * | approval.grant        |  x    |    x    |            |         |         |
  */
 export const CAPABILITIES = {
   "catalog.view": ["owner", "manager", "pharmacist", "cashier", "auditor"],
@@ -28,6 +32,10 @@ export const CAPABILITIES = {
   "inventory.adjust": ["owner", "manager", "pharmacist"],
   "catalog.import": ["owner", "manager"],
   "audit.view": ["owner", "auditor"],
+  "pos.sell": ["owner", "manager", "pharmacist", "cashier"],
+  "sales.view": ["owner", "manager", "pharmacist", "cashier", "auditor"],
+  "shifts.view_all": ["owner", "manager", "auditor"],
+  "approval.grant": ["owner", "manager"],
 } as const satisfies Record<string, readonly Role[]>;
 
 export type Capability = keyof typeof CAPABILITIES;

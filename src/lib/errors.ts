@@ -10,6 +10,8 @@ export class DomainError extends Error {
     /** Stable machine code, e.g. `INSUFFICIENT_STOCK`. */
     readonly code: string,
     message: string,
+    /** Optional structured payload (e.g. fresh availability on STOCK_CHANGED). */
+    readonly details?: unknown,
   ) {
     super(message);
     this.name = "DomainError";

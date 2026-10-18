@@ -1015,5 +1015,9 @@ export function seedSettings(currency: string, timezone: string): SeedSetting[] 
       key: "adjustments.step_up_thresholds",
       value: { qtyBase: 500, valueMinor: 50_000 },
     },
+    // M2 POS knobs — same fallbacks in `src/lib/settings.ts`.
+    { key: "pos.discount_max_pct", value: 20 },
+    { key: "pos.cash_rounding", value: { enabled: false, incrementMinor: 25 } },
+    { key: "pos.near_expiry_warn_days", value: 30 },
   ];
 }

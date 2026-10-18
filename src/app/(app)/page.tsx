@@ -109,16 +109,23 @@ export default async function DashboardPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Milestone M1 — catalog &amp; inventory</CardTitle>
+          <CardTitle>Milestone M2 — POS core</CardTitle>
           <CardDescription>
-            Products, batches, receiving, adjustments and alerts are live. Stock figures come
-            straight from the batch table — the same numbers the POS will allocate against.
+            The register is live: scan or search, hold carts, split tender, FEFO checkout and
+            printed receipts. Sales decrement the same batch stock these cards report.
           </CardDescription>
         </CardHeader>
         <CardContent className="text-muted-foreground flex flex-col gap-2 text-sm">
+          {can(user.role, "pos.sell") ? (
+            <p>
+              <Link href="/pos" className="underline">
+                Open the register →
+              </Link>
+            </p>
+          ) : null}
           <p>
-            Coming in later milestones: POS checkout (M2), compliance register views, purchasing
-            (M4), reports.
+            Coming in later milestones: prescriptions &amp; controlled-drug sales (M3), purchasing
+            (M4), ESC/POS printers &amp; cash drawer (M5), reports.
           </p>
         </CardContent>
       </Card>

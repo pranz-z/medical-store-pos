@@ -27,6 +27,10 @@ const EXPECTED: Record<Capability, Role[]> = {
   "inventory.adjust": ["owner", "manager", "pharmacist"],
   "catalog.import": ["owner", "manager"],
   "audit.view": ["owner", "auditor"],
+  "pos.sell": ["owner", "manager", "pharmacist", "cashier"],
+  "sales.view": ["owner", "manager", "pharmacist", "cashier", "auditor"],
+  "shifts.view_all": ["owner", "manager", "auditor"],
+  "approval.grant": ["owner", "manager"],
 };
 
 describe("capability matrix", () => {

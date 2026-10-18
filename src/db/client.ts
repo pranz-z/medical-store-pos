@@ -18,7 +18,17 @@ export interface DatabaseHandle {
  * their own isolated handles with this factory.
  */
 export function createDatabase(url: string, authToken?: string): DatabaseHandle {
-  const client = createClient({ url, ...(authToken ? { authToken } : {}) });
+  const client = createClient({
+    url,
+    ...(authToken ? { authToken } : {}),
+    // Local SQLite has a single writer anyway: one pooled connection forces
+    // statements and write transactions to serialize through the pool's async
+    // wait-queue instead of racing on separate connections — no spin-locked
+    // SQLITE_BUSY between two connections in the same process. `timeout` is
+    // better-sqlite3's busy timeout as a safety net for an external process
+    // holding the file. Remote (libsql://) ignores both.
+    ...(url.startsWith("file:") ? { concurrency: 1, timeout: 5_000 } : {}),
+  });
   const db = drizzle(client, { schema });
   return { client, db };
 }

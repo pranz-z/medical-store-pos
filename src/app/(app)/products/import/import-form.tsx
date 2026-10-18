@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState, useTransition } from "react";
 
@@ -95,7 +96,7 @@ export function ImportForm() {
             onChange={(event) => void onFile(event.target.files?.[0])}
           />
           <Button variant="outline" size="sm" asChild>
-            <a href="/api/products/import-template">Download template</a>
+            <Link href="/api/products/import-template">Download template</Link>
           </Button>
         </div>
         {fileName ? (

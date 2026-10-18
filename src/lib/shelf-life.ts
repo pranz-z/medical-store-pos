@@ -5,24 +5,56 @@ import { addDaysIso } from "@/lib/dates";
  * when its expiry is in the past or sooner than the configured minimum
  * shelf-life (default 90 days via `inventory.min_shelf_life_days`).
  *
- * Returns an error message, or `null` when the date is acceptable.
+ * The result distinguishes the rejection kind because M2's manager-approval
+ * override may only bypass `TOO_SOON` — a malformed or past expiry is never
+ * receivable.
  */
+export type ExpiryRejectionCode = "BAD_FORMAT" | "PAST" | "TOO_SOON";
+
+export interface ExpiryCheck {
+  ok: boolean;
+  code?: ExpiryRejectionCode;
+  message?: string;
+}
+
+export function checkExpiry(
+  expiryIso: string,
+  todayIso: string,
+  minShelfLifeDays: number,
+): ExpiryCheck {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(expiryIso) || !isRealDate(expiryIso)) {
+    return {
+      ok: false,
+      code: "BAD_FORMAT",
+      message: "Expiry must be a real calendar date (YYYY-MM-DD).",
+    };
+  }
+  if (expiryIso < todayIso) {
+    return {
+      ok: false,
+      code: "PAST",
+      message: "Expiry date is in the past — expired stock cannot be received.",
+    };
+  }
+  const earliest = addDaysIso(todayIso, minShelfLifeDays);
+  if (expiryIso < earliest) {
+    return {
+      ok: false,
+      code: "TOO_SOON",
+      message: `Expiry ${expiryIso} is inside the minimum shelf-life of ${minShelfLifeDays} days (earliest accepted: ${earliest}).`,
+    };
+  }
+  return { ok: true };
+}
+
+/** Back-compat wrapper: the rejection message, or `null` when acceptable. */
 export function expiryRejection(
   expiryIso: string,
   todayIso: string,
   minShelfLifeDays: number,
 ): string | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(expiryIso) || !isRealDate(expiryIso)) {
-    return "Expiry must be a real calendar date (YYYY-MM-DD).";
-  }
-  if (expiryIso < todayIso) {
-    return "Expiry date is in the past — expired stock cannot be received.";
-  }
-  const earliest = addDaysIso(todayIso, minShelfLifeDays);
-  if (expiryIso < earliest) {
-    return `Expiry ${expiryIso} is inside the minimum shelf-life of ${minShelfLifeDays} days (earliest accepted: ${earliest}).`;
-  }
-  return null;
+  const check = checkExpiry(expiryIso, todayIso, minShelfLifeDays);
+  return check.ok ? null : (check.message ?? "Invalid expiry.");
 }
 
 /** Strict calendar-date check: catches 2026-02-30 style fakes. */

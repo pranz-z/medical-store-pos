@@ -179,7 +179,15 @@ export const payments = sqliteTable(
       .notNull()
       .references(() => sales.id),
     method: text("method").notNull(),
+    /** Amount applied to the bill; sums to `sales.total` across rows. */
     amount: money("amount").notNull(),
+    /**
+     * What the customer handed over (spec FR-POS-4). Equals `amount` for
+     * non-cash methods; only cash may overpay. Null on pre-M2 rows.
+     */
+    tendered: money("tendered"),
+    /** Change returned for this tender (cash only; always 0 for non-cash). */
+    changeGiven: money("change_given").notNull().default(0),
     /** Card approval code, e-wallet reference, etc. */
     reference: text("reference"),
     createdAt: createdAt(),
@@ -189,6 +197,7 @@ export const payments = sqliteTable(
     index("payments_sale_idx").on(table.saleId),
     check("payments_method_check", sql`${table.method} in ('cash', 'card', 'ewallet', 'other')`),
     check("payments_amount_check", sql`${table.amount} >= 0`),
+    check("payments_change_given_check", sql`${table.changeGiven} >= 0`),
   ],
 );
 

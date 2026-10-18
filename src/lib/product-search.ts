@@ -32,6 +32,8 @@ export interface ProductSearchHit {
   coldChain: boolean;
   /** Non-expired on-hand quantity in base units across the caller's branch. */
   stockBase: number;
+  /** Earliest unexpired batch expiry (the batch FEFO would draw first), or null. */
+  earliestExpiry: string | null;
   matchedBarcode: string | null;
   units: ProductSearchUnit[];
 }
@@ -77,6 +79,21 @@ export async function searchProducts(
   });
   const ids = ftsHits.rows.map((row) => String(row.id));
   return hydrateProducts(client, ids, options, new Map());
+}
+
+/** Loads one product's hydrated hit (held-cart resume, cart re-validation). */
+export async function getProductHit(
+  client: Client,
+  productId: string,
+  options: { branchId: string; todayIso: string },
+): Promise<ProductSearchHit | null> {
+  const active = await client.execute({
+    sql: "select active from products where id = ?",
+    args: [productId],
+  });
+  if (active.rows.length === 0 || Number(active.rows[0].active) !== 1) return null;
+  const hits = await hydrateProducts(client, [productId], options, new Map());
+  return hits[0] ?? null;
 }
 
 /** Alphabetical browse list used when the catalog page has no search query. */
@@ -128,10 +145,14 @@ async function hydrateProducts(
                    select sum(b.qty_remaining) from batches b
                    where b.product_id = p.id and b.branch_id = ?
                      and b.qty_remaining > 0 and b.expiry_date >= ?
-                 ), 0) as stock_base
+                 ), 0) as stock_base,
+                 (select min(b.expiry_date) from batches b
+                   where b.product_id = p.id and b.branch_id = ?
+                     and b.qty_remaining > 0 and b.expiry_date >= ?
+                 ) as earliest_expiry
           from products p
           where p.id in (${placeholders})`,
-    args: [options.branchId, options.todayIso, ...ids],
+    args: [options.branchId, options.todayIso, options.branchId, options.todayIso, ...ids],
   });
 
   const unitRows = await client.execute({
@@ -175,6 +196,7 @@ async function hydrateProducts(
       controlledSchedule: row.controlled_schedule === null ? null : String(row.controlled_schedule),
       coldChain: Number(row.cold_chain) === 1,
       stockBase: Number(row.stock_base),
+      earliestExpiry: row.earliest_expiry === null ? null : String(row.earliest_expiry),
       matchedBarcode: barcodesByProduct.get(String(row.id)) ?? null,
       units: unitsByProduct.get(String(row.id)) ?? [],
     }));

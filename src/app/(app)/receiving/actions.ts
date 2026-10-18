@@ -9,12 +9,16 @@ import { DomainError } from "@/lib/errors";
 import { receiveStock, type ReceiveStockInput } from "@/lib/inventory-mutations";
 
 export type ReceiveActionResult =
-  { status: "ok"; receivingId: string; lines: number } | { status: "error"; message: string };
+  | { status: "ok"; receivingId: string; lines: number }
+  | { status: "approval-required"; message: string }
+  | { status: "error"; message: string };
 
 /**
  * Ad-hoc receiving (spec §6.3). `receiveStock` re-validates the payload and
  * runs the batch top-up + movement + controlled register + audit writes in a
- * single transaction.
+ * single transaction. A line inside the minimum shelf-life needs a
+ * second-user approval token (`approval-required`); a past expiry is always
+ * rejected.
  */
 export async function receiveStockAction(input: ReceiveStockInput): Promise<ReceiveActionResult> {
   const actor = await requireUser();
@@ -24,7 +28,15 @@ export async function receiveStockAction(input: ReceiveStockInput): Promise<Rece
     revalidatePath("/receiving");
     return { status: "ok", receivingId: result.receivingId, lines: result.lines.length };
   } catch (error) {
-    if (error instanceof DomainError) return { status: "error", message: error.message };
+    if (error instanceof DomainError) {
+      if (error.code === "APPROVAL_REQUIRED") {
+        return { status: "approval-required", message: error.message };
+      }
+      if (error.code === "BAD_APPROVAL") {
+        return { status: "approval-required", message: error.message };
+      }
+      return { status: "error", message: error.message };
+    }
     if (error instanceof ZodError) {
       return { status: "error", message: error.issues[0]?.message ?? "Invalid input." };
     }

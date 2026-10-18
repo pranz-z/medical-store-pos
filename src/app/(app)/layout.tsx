@@ -17,6 +17,9 @@ import { ROLE_LABELS, type Role } from "@/lib/roles";
  */
 const NAV_ITEMS: (NavItem & { roles?: Role[]; capability?: Capability })[] = [
   { href: "/", label: "Dashboard" },
+  { href: "/pos", label: "POS", capability: "pos.sell" },
+  { href: "/sales", label: "Sales", capability: "sales.view" },
+  { href: "/shifts", label: "Shifts", capability: "pos.sell" },
   { href: "/products", label: "Products", capability: "catalog.view" },
   { href: "/inventory", label: "Inventory", capability: "inventory.view" },
   { href: "/receiving", label: "Receiving", capability: "inventory.receive" },

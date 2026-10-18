@@ -3,12 +3,14 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
+import { ApprovalDialog } from "@/components/approval-dialog";
 import { ProductCombobox } from "@/components/product-combobox";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { receivingApprovalPayload } from "@/lib/inventory-shared";
 import { parseMinor } from "@/lib/money";
 import type { ProductSearchHit } from "@/lib/product-search";
 
@@ -43,6 +45,7 @@ export function ReceiveForm({ suppliers }: { suppliers: { id: string; name: stri
   const [lines, setLines] = useState<ReceiveLine[]>([emptyLine()]);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [approval, setApproval] = useState<{ message: string } | null>(null);
   const [pending, startTransition] = useTransition();
 
   const setLine = <K extends keyof ReceiveLine>(key: number, field: K, value: ReceiveLine[K]) =>
@@ -64,7 +67,23 @@ export function ReceiveForm({ suppliers }: { suppliers: { id: string; name: stri
 
   const invalid = lines.some((line) => lineError(line) !== null);
 
-  function submit() {
+  function buildInput(approvalToken?: string) {
+    return {
+      supplierId: supplierId || null,
+      reference: reference.trim() || undefined,
+      lines: lines.map((line) => ({
+        productId: line.product!.id,
+        unitId: line.unitId,
+        batchNo: line.batchNo.trim(),
+        expiryDate: line.expiryDate,
+        qty: Number(line.qty),
+        unitCostMinor: parseMinor(line.unitCost) ?? 0,
+      })),
+      ...(approvalToken ? { approvalToken } : {}),
+    };
+  }
+
+  function submit(approvalToken?: string) {
     setError(null);
     setSuccess(null);
     const firstError = lines.map(lineError).find((message) => message !== null);
@@ -73,18 +92,11 @@ export function ReceiveForm({ suppliers }: { suppliers: { id: string; name: stri
       return;
     }
     startTransition(async () => {
-      const result = await receiveStockAction({
-        supplierId: supplierId || null,
-        reference: reference.trim() || undefined,
-        lines: lines.map((line) => ({
-          productId: line.product!.id,
-          unitId: line.unitId,
-          batchNo: line.batchNo.trim(),
-          expiryDate: line.expiryDate,
-          qty: Number(line.qty),
-          unitCostMinor: parseMinor(line.unitCost) ?? 0,
-        })),
-      });
+      const result = await receiveStockAction(buildInput(approvalToken));
+      if (result.status === "approval-required") {
+        setApproval({ message: result.message });
+        return;
+      }
       if (result.status === "error") {
         setError(result.message);
         return;
@@ -92,6 +104,7 @@ export function ReceiveForm({ suppliers }: { suppliers: { id: string; name: stri
       setSuccess(`Received ${result.lines} line(s). Stock, movements and audit are updated.`);
       setLines([emptyLine()]);
       setReference("");
+      setApproval(null);
       router.refresh();
     });
   }
@@ -235,10 +248,22 @@ export function ReceiveForm({ suppliers }: { suppliers: { id: string; name: stri
           <Button variant="outline" onClick={() => setLines((p) => [...p, emptyLine()])}>
             Add line
           </Button>
-          <Button onClick={submit} disabled={pending || invalid}>
+          <Button onClick={() => submit()} disabled={pending || invalid}>
             {pending ? "Receiving…" : `Receive ${lines.length} line(s)`}
           </Button>
         </div>
+
+        <ApprovalDialog
+          open={approval !== null}
+          onOpenChange={(open) => {
+            if (!open) setApproval(null);
+          }}
+          action="receiving.shelf_life"
+          payload={receivingApprovalPayload(buildInput())}
+          reasonRequired
+          description={`${approval?.message ?? ""} An owner or manager can approve this receipt — a reason is required.`}
+          onApproved={async (token) => submit(token)}
+        />
       </CardContent>
     </Card>
   );

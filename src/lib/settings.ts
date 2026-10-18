@@ -30,6 +30,61 @@ export const DEFAULT_ADJUST_STEP_UP: AdjustmentStepUpThresholds = {
   valueMinor: 50_000,
 };
 
+// ---- M2 POS settings (spec §3.1) -------------------------------------------
+
+/** Max manual discount (percent of line/cart subtotal) without an approval token. */
+export const DISCOUNT_MAX_PCT_KEY = "pos.discount_max_pct";
+export const DEFAULT_DISCOUNT_MAX_PCT = 20;
+
+/**
+ * Cash rounding for the payable total (spec §6.1.3). `incrementMinor` is the
+ * rounding step in minor units (25 = ₱0.25). `enabled: false` = no rounding.
+ */
+export const CASH_ROUNDING_KEY = "pos.cash_rounding";
+export interface CashRounding {
+  enabled: boolean;
+  incrementMinor: number;
+}
+export const DEFAULT_CASH_ROUNDING: CashRounding = { enabled: false, incrementMinor: 25 };
+
+/** POS line warning when the FEFO batch expires within this many days. */
+export const NEAR_EXPIRY_WARN_KEY = "pos.near_expiry_warn_days";
+export const DEFAULT_NEAR_EXPIRY_WARN_DAYS = 30;
+
+export async function getDiscountMaxPct(db: Database): Promise<number> {
+  const value = await readSetting(db, DISCOUNT_MAX_PCT_KEY);
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 100
+    ? value
+    : DEFAULT_DISCOUNT_MAX_PCT;
+}
+
+export async function getCashRounding(db: Database): Promise<CashRounding> {
+  const value = await readSetting(db, CASH_ROUNDING_KEY);
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    typeof (value as Record<string, unknown>).enabled === "boolean" &&
+    Number.isInteger((value as Record<string, unknown>).incrementMinor)
+  ) {
+    return value as unknown as CashRounding;
+  }
+  return DEFAULT_CASH_ROUNDING;
+}
+
+export async function getNearExpiryWarnDays(db: Database): Promise<number> {
+  const value = await readSetting(db, NEAR_EXPIRY_WARN_KEY);
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
+    ? value
+    : DEFAULT_NEAR_EXPIRY_WARN_DAYS;
+}
+
+/** Rounds `amount` to the nearest multiple of `increment` (half-up). 0 increment = unchanged. */
+export function applyCashRounding(amountMinor: number, rounding: CashRounding): number {
+  if (!rounding.enabled || rounding.incrementMinor <= 0) return amountMinor;
+  return Math.round(amountMinor / rounding.incrementMinor) * rounding.incrementMinor;
+}
+
 export async function getMinShelfLifeDays(db: Database): Promise<number> {
   const value = await readSetting(db, MIN_SHELF_LIFE_DAYS_KEY);
   return typeof value === "number" && Number.isInteger(value) && value >= 0

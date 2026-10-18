@@ -2,20 +2,25 @@ import { z } from "zod";
 
 import type { DatabaseHandle } from "@/db/client";
 import type { JsonValue } from "@/db/schema/system";
+import { consumeApproval } from "@/lib/approvals";
 import { buildAuditStatement } from "@/lib/audit";
 import type { SessionUser } from "@/lib/auth/session";
 import { todayIso } from "@/lib/dates";
 import { serverEnv } from "@/lib/env";
 import { DomainError } from "@/lib/errors";
 import { newId } from "@/lib/ids";
-import { ADJUST_REASONS } from "@/lib/inventory-shared";
+import {
+  ADJUST_REASONS,
+  adjustmentApprovalPayload,
+  receivingApprovalPayload,
+} from "@/lib/inventory-shared";
 import { requireCapability } from "@/lib/permissions";
 import {
   adjustmentNeedsStepUp,
   getAdjustmentStepUpThresholds,
   getMinShelfLifeDays,
 } from "@/lib/settings";
-import { expiryRejection } from "@/lib/shelf-life";
+import { checkExpiry } from "@/lib/shelf-life";
 import { withWriteTx } from "@/lib/tx";
 import { costPerBaseUnit, toBaseUnits } from "@/lib/units";
 
@@ -48,6 +53,8 @@ export const receiveStockSchema = z.object({
   supplierId: z.string().trim().min(1).nullable().optional(),
   reference: z.string().trim().max(80).optional(),
   lines: z.array(receiveLineSchema).min(1).max(100),
+  /** Manager approval token — required only when a line is inside min shelf-life. */
+  approvalToken: z.string().trim().min(1).optional(),
 });
 export type ReceiveStockInput = z.infer<typeof receiveStockSchema>;
 
@@ -92,6 +99,7 @@ export async function receiveStock(
 
     const results: ReceiveLineResult[] = [];
     const auditLines: JsonValue[] = [];
+    let shelfLifeApprover: string | null = null;
 
     for (const line of input.lines) {
       const product = await tx.execute({
@@ -119,9 +127,27 @@ export async function receiveStock(
       const qtyBase = toBaseUnits(line.qty, factor);
       const costBase = costPerBaseUnit(line.unitCostMinor, factor);
 
-      const rejection = expiryRejection(line.expiryDate, today, minShelfLifeDays);
-      if (rejection) {
-        throw new DomainError("BAD_EXPIRY", `${String(product.rows[0].name)}: ${rejection}`);
+      const expiry = checkExpiry(line.expiryDate, today, minShelfLifeDays);
+      if (!expiry.ok) {
+        if (expiry.code === "TOO_SOON" && input.approvalToken) {
+          // Manager-approved override: one token covers the whole receipt.
+          shelfLifeApprover ??= (
+            await consumeApproval(tx, {
+              tokenId: input.approvalToken,
+              requesterId: actor.id,
+              action: "receiving.shelf_life",
+              payload: receivingApprovalPayload(input),
+              requireReason: true,
+            })
+          ).approverId;
+        } else if (expiry.code === "TOO_SOON") {
+          throw new DomainError(
+            "APPROVAL_REQUIRED",
+            `${String(product.rows[0].name)}: ${expiry.message} A manager can approve receiving it anyway.`,
+          );
+        } else {
+          throw new DomainError("BAD_EXPIRY", `${String(product.rows[0].name)}: ${expiry.message}`);
+        }
       }
 
       // Top-up path (spec §3.3 / schema note): same branch+product+batch+expiry
@@ -226,6 +252,7 @@ export async function receiveStock(
           supplierId: input.supplierId ?? null,
           reference: input.reference ?? null,
           lines: auditLines,
+          shelfLifeApprovedBy: shelfLifeApprover,
         },
       }),
     );
@@ -245,6 +272,8 @@ export const adjustStockSchema = z.object({
   /** Signed delta in base units; sign rules are enforced per reason below. */
   qtyDeltaBase: z.number().int().min(-1_000_000).max(1_000_000),
   notes: z.string().trim().max(200).optional(),
+  /** Manager approval token — required when the adjustment crosses the step-up thresholds. */
+  approvalToken: z.string().trim().min(1).optional(),
 });
 export type AdjustStockInput = z.infer<typeof adjustStockSchema>;
 
@@ -323,13 +352,14 @@ export async function adjustStock(
     throw new DomainError("BAD_SIGN", "An expiry write-off must decrease stock.");
   }
   const movementType = input.reason === "expiry_writeoff" ? "writeoff" : "adjust";
+  const thresholds = await getAdjustmentStepUpThresholds(handle.db);
 
   const adjustmentId = newId();
   const now = Date.now();
 
   return withWriteTx(handle.client, async (tx) => {
     const batch = await tx.execute({
-      sql: `select b.id, b.product_id, b.qty_remaining, p.controlled_schedule
+      sql: `select b.id, b.product_id, b.qty_remaining, b.cost_per_base_unit, p.controlled_schedule
             from batches b join products p on p.id = b.product_id
             where b.id = ? and b.branch_id = ?`,
       args: [input.batchId, branchId],
@@ -338,6 +368,31 @@ export async function adjustStock(
       throw new DomainError("NOT_FOUND", "Batch not found for your branch.");
     }
     const before = Number(batch.rows[0].qty_remaining);
+
+    // Over-threshold adjustments need a second-user approval token (M2).
+    let approverId: string | null = null;
+    if (
+      adjustmentNeedsStepUp(
+        input.qtyDeltaBase,
+        Number(batch.rows[0].cost_per_base_unit),
+        thresholds,
+      )
+    ) {
+      if (!input.approvalToken) {
+        throw new DomainError(
+          "APPROVAL_REQUIRED",
+          "This adjustment is above the approval threshold — a manager must approve it.",
+        );
+      }
+      approverId = (
+        await consumeApproval(tx, {
+          tokenId: input.approvalToken,
+          requesterId: actor.id,
+          action: "adjustment.threshold",
+          payload: adjustmentApprovalPayload(input),
+        })
+      ).approverId;
+    }
 
     // Conditional decrement (spec §4.3.4): the UPDATE itself enforces
     // qty_remaining >= 0, so a concurrent mover can never oversell — whoever
@@ -396,6 +451,7 @@ export async function adjustStock(
           qtyRemaining: before + input.qtyDeltaBase,
           reason: input.reason,
           movementType,
+          approvedBy: approverId,
         },
       }),
     );

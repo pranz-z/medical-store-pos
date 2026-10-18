@@ -15,7 +15,7 @@ export async function withWriteTx<T>(
   client: Client,
   fn: (tx: Transaction) => Promise<T>,
 ): Promise<T> {
-  const maxAttempts = 4;
+  const maxAttempts = 8;
   for (let attempt = 1; ; attempt += 1) {
     try {
       const tx = await client.transaction("write");
@@ -35,13 +35,16 @@ export async function withWriteTx<T>(
       }
     } catch (error) {
       if (!isBusyError(error) || attempt >= maxAttempts) throw error;
-      await sleep(25 * attempt);
+      await sleep(Math.min(25 * attempt, 150));
     }
   }
 }
 
 function isBusyError(error: unknown): boolean {
-  return error instanceof Error && /SQLITE_BUSY|database is locked/i.test(error.message);
+  return (
+    error instanceof Error &&
+    /SQLITE_BUSY|database is locked|TRANSACTION_ACTIVE/i.test(error.message)
+  );
 }
 
 function sleep(ms: number): Promise<void> {

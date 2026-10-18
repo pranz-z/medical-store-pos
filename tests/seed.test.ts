@@ -43,7 +43,7 @@ describe("seed on a freshly migrated database", () => {
       batches: 58,
       stockMovements: 58,
       controlledRegister: 3,
-      settings: 7,
+      settings: 10,
     });
   });
 

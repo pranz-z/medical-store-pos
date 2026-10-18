@@ -72,6 +72,7 @@ Useful extras:
 | `db:setup` | `db:migrate` + `db:seed` |
 | `db:fts:rebuild` | Rebuild the `products_fts` index from `products` |
 | `db:smoke` | Migrate + run the schema probe against a throwaway **remote** Turso DB |
+| `bench:search` | Generate a temp catalog (`--rows`, default 50k) and report `searchProducts` p50/p95/p99 |
 
 ## Turso setup
 
@@ -203,7 +204,7 @@ are untouched.
   `count_correction`, `theft`, `sample`). The conditional UPDATE keeps
   `qty_remaining ≥ 0` even under races. Adjustments at/above
   `adjustments.step_up_thresholds` (`qtyBase` 500 or `valueMinor` ₱500.00 at
-  cost) require the PIN step-up before writing.
+  cost) require a second-user approval (see "POS (M2)" below).
 - **CSV import** (`/products/import`): upload → per-row dry-run errors →
   all-or-nothing commit in one transaction; template at
   `GET /api/products/import-template`. Caps: 500 rows / 256 KB.
@@ -213,26 +214,91 @@ are untouched.
 - Both settings keys are seeded; `src/lib/settings.ts` falls back to the same
   defaults when rows are absent.
 
+## POS (M2)
+
+- **Register** (`/pos`): opens a shift (float), then a scanner-first screen —
+  the scan input stays focused and Enter adds the item (barcode-exact wins over
+  FTS). Cart lines edit quantity (in the chosen sale unit), unit, and line
+  discount; a cart discount sits on the totals panel. On-screen totals are
+  estimates only — checkout re-prices everything server-side.
+- **Checkout** (`POST /api/sales`, `Idempotency-Key` header required) runs one
+  write transaction: validate → re-price from `product_prices` → FEFO-allocate
+  and conditionally decrement batches → insert sale/lines/payments/movements →
+  allocate the sequential per-branch receipt number → audit. A stock race loses
+  with a `STOCK_CHANGED` error carrying fresh availability; replaying the same
+  key returns the stored receipt without writing a second sale.
+- **Units and loose stock:** quantity is entered in a sale unit and converted
+  to base units. A non-whole multiple is rejected unless the product is
+  `sellable_loose`; loose base-unit pricing is `unit_price / factor` rounded to
+  the nearest centavo, half-up (documented in `src/lib/sales-mutations.ts`).
+- **Tax and rounding:** each line applies its `tax_class` rate in basis
+  points; prices marked `price_includes_tax` extract the VAT portion per line
+  with integer half-up rounding (per line, summed for the sale — no float
+  math). `pos.cash_rounding` (`{enabled, incrementMinor}`, default off)
+  optionally rounds the payable total to the nearest step and records the
+  `rounding` delta on the sale.
+- **Payments:** split tender across `cash`/`card`/`ewallet`/`other`. Non-cash
+  rows are capped at the amount still due; cash may overpay and records
+  `tendered`/`change_given` (migration 0001). Tender must cover the total.
+- **Discounts and approval:** manual line/cart discounts are free-form up to
+  `pos.discount_max_pct` (default 20%). Above the cap the cashier requests a
+  second-user approval (`ApprovalDialog`): the approver enters their own email
+  + 4–6 digit PIN, and the server returns a short-lived single-use token bound
+  to the action class and a canonical hash of the exact payload — consumed
+  atomically inside the mutation's transaction. The same flow now guards
+  threshold adjustments (`adjustment.threshold`) and receiving minimum
+  shelf-life overrides (`receiving.shelf_life_override`, reason required).
+  Grants and consumption are audited. The acting-user PIN step-up remains only
+  for sensitive self-actions on `/users`.
+- **Blocked until M3:** any cart containing a `requires_rx` or controlled
+  product is rejected at checkout with "Prescription handling arrives in the
+  next release." Named discount types (senior/PWD), voids, refunds and Rx
+  overrides are also M3 — there is no bypass.
+- **Held carts** park/resume in IndexedDB per terminal (`src/lib/held-carts.ts`)
+  and store only ids + quantities — never prices — so a resumed cart is
+  re-priced like any other checkout. Checkout success deletes the held cart.
+- **Shifts** (`/shifts`, open/close at `/pos`): one open shift per user per
+  branch. Closing stores `expected_cash` (float + cash tendered − change) and
+  the `variance` vs counted cash; the report lists sales count, totals by
+  tender, discounts and variance. Managers/owners/auditors see everyone's
+  shifts; cashiers see their own.
+- **Sales history** (`/sales`): filter by store-timezone calendar date and/or
+  cashier; `/sales/[id]` shows the receipt and reprints via `reprintSale`,
+  which marks the copy "REPRINT" and writes an audit row.
+- **Receipts** print through the browser on 80 mm thermal CSS
+  (`@media print` in `globals.css`): store name/address/tax ID, sequential
+  receipt number, lines with batch/expiry, VAT breakdown, discounts, tenders,
+  change, cashier and the `APP_TIMEZONE` timestamp. ESC/POS and the cash
+  drawer are deferred to M5.
+- **Performance:** `npm run bench:search` generates a temp catalog (default
+  50k products) and times `searchProducts`. Measured here: p95 ≈ 0.9 ms on the
+  56-product seed and ≈ 7.8 ms on 50k — the 200 ms target holds with
+  headroom.
+
 ## Layout
 
 ```
 src/app/(auth)/login     sign-in page
-src/app/(app)            authenticated shell: dashboard, /products (+/new,
-                         /[id], /import), /inventory (+/movements),
-                         /receiving, /adjustments, /audit, owner-only /users
+src/app/(app)            authenticated shell: dashboard, /pos, /sales (+/[id]),
+                         /shifts, /products (+/new, /[id], /import),
+                         /inventory (+/movements), /receiving, /adjustments,
+                         /audit, owner-only /users
 src/app/api/health       public liveness probe
 src/app/api/auth         Better Auth handler
-src/app/api/products     search, per-product batches, import template
-src/components           shadcn/ui + app shell, combobox, step-up dialog
+src/app/api/products     search, per-product detail/batches, import template
+src/app/api/sales        checkout (POST, Idempotency-Key header)
+src/components           shadcn/ui + app shell, combobox, step-up + approval
+                         dialogs
 src/db/schema            Drizzle schema (one file per domain)
 src/db/seed*.ts          demo dataset + dev-only credentials
 src/db/verify.ts         schema integrity probe (tests + db:smoke)
 src/lib                  money/dates/units/roles, auth, authz, audit,
-                         rate-limit, step-up, env, request context,
-                         permissions, settings, tx, catalog/inventory
-                         mutations+queries, product-search, fefo,
-                         shelf-life, csv, product-import
-scripts/                 migrate, seed, reset, rebuild-fts, smoke (tsx)
+                         rate-limit, step-up, approvals, env, request context,
+                         permissions, settings, tx, catalog/inventory/sales/
+                         shift mutations+queries, product-search, fefo,
+                         shelf-life, csv, product-import, held-carts
+scripts/                 migrate, seed, reset, rebuild-fts, smoke,
+                         search-bench (tsx)
 drizzle/                 generated migrations (+ hand-written SQL block)
-tests/                   integration tests (migration, seed, inventory)
+tests/                   integration tests (migration, seed, inventory, sales)
 ```

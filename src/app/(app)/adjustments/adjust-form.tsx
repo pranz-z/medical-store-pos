@@ -3,15 +3,19 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
+import { ApprovalDialog } from "@/components/approval-dialog";
 import { ProductCombobox } from "@/components/product-combobox";
-import { StepUpDialog } from "@/components/step-up-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ADJUST_REASONS, type AdjustReason } from "@/lib/inventory-shared";
+import {
+  ADJUST_REASONS,
+  adjustmentApprovalPayload,
+  type AdjustReason,
+} from "@/lib/inventory-shared";
 import type { ProductSearchHit } from "@/lib/product-search";
 
 import { adjustStockAction, type AdjustActionResult } from "./actions";
@@ -44,7 +48,7 @@ export function AdjustForm() {
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [stepUpOpen, setStepUpOpen] = useState(false);
+  const [approvalOpen, setApprovalOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const selectedBatch = batches.find((batch) => batch.id === batchId);
@@ -76,18 +80,19 @@ export function AdjustForm() {
     return null;
   }
 
-  async function run(): Promise<AdjustActionResult> {
+  async function run(approvalToken?: string): Promise<AdjustActionResult> {
     return adjustStockAction({
       batchId,
       reason,
       qtyDeltaBase: qtyDelta!,
       ...(notes.trim() ? { notes: notes.trim() } : {}),
+      ...(approvalToken ? { approvalToken } : {}),
     });
   }
 
   function handleResult(result: AdjustActionResult) {
-    if (result.status === "step-up-required") {
-      setStepUpOpen(true);
+    if (result.status === "approval-required") {
+      setApprovalOpen(true);
       return;
     }
     if (result.status === "error") {
@@ -219,11 +224,18 @@ export function AdjustForm() {
           </Button>
         </div>
 
-        <StepUpDialog
-          open={stepUpOpen}
-          onOpenChange={setStepUpOpen}
-          onVerified={async () => handleResult(await run())}
-          description="This adjustment is above the configured threshold. Confirm with your 4–6 digit PIN to continue."
+        <ApprovalDialog
+          open={approvalOpen}
+          onOpenChange={setApprovalOpen}
+          action="adjustment.threshold"
+          payload={adjustmentApprovalPayload({
+            batchId,
+            reason,
+            qtyDeltaBase: qtyDelta ?? 0,
+            notes: notes.trim() || null,
+          })}
+          description="This adjustment is above the configured threshold. An owner or manager must approve it with their email and PIN."
+          onApproved={async (token) => handleResult(await run(token))}
         />
       </CardContent>
     </Card>

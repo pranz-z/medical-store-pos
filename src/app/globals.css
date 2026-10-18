@@ -128,3 +128,33 @@
     @apply font-sans;
   }
 }
+
+/* 80 mm thermal receipt: on screen the `.print-area` stays hidden; @media
+ * print flips the page to a narrow monochrome receipt and hides everything
+ * else (browser print — ESC/POS and cash drawer are deferred to M5). */
+.print-area {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: 80mm auto;
+    margin: 4mm;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    display: block;
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 72mm;
+  }
+  .receipt {
+    color: #000;
+  }
+}
