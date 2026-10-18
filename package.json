@@ -23,7 +23,8 @@
     "db:fts:rebuild": "tsx scripts/rebuild-fts.ts",
     "db:smoke": "tsx scripts/smoke.ts",
     "db:setup": "npm run db:migrate && npm run db:seed",
-    "bench:search": "tsx scripts/search-bench.ts"
+    "bench:search": "tsx scripts/search-bench.ts",
+    "ci:local": "npm run format:check && npm run lint && npx tsc --noEmit && npm test"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
