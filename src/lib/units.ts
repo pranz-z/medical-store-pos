@@ -34,3 +34,19 @@ export function priceFromBaseUnit(basePriceMinor: number, factorToBase: number):
   }
   return basePriceMinor * factorToBase;
 }
+
+/**
+ * Cost per base unit derived from a cost quoted per selling unit
+ * (spec §6.3: receiving enters cost per box/strip; `batches.cost_per_base_unit`
+ * stores per base unit). Integer minor units — the result is rounded to the
+ * nearest minor unit when the cost does not divide evenly.
+ */
+export function costPerBaseUnit(costPerUnitMinor: number, factorToBase: number): number {
+  if (!Number.isInteger(costPerUnitMinor) || costPerUnitMinor < 0) {
+    throw new Error("Cost must be a non-negative integer minor unit.");
+  }
+  if (!Number.isInteger(factorToBase) || factorToBase <= 0) {
+    throw new Error("Factor must be a positive integer.");
+  }
+  return Math.round(costPerUnitMinor / factorToBase);
+}

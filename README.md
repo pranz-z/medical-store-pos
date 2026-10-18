@@ -177,20 +177,62 @@ are untouched.
 - No PII in logs. Never commit secrets — `.env*` is gitignored, `.env.example`
   is the template.
 
+## Catalog & inventory (M1)
+
+- **Capabilities** live in `src/lib/permissions.ts` (`can`/`requireCapability`);
+  every server mutation enforces them — nav/UI hiding is convenience only.
+  Owner+manager get everything; pharmacist gets catalog/inventory view plus
+  receiving and adjustments (no prices, no import); cashier is read-only
+  catalog search; auditor is read-only including the ledger and audit log.
+- **Products** (`/products`): FTS search + browse, create/edit/deactivate,
+  units (base + conversion factors, one default sale unit), barcodes (globally
+  unique), categories, tax class, flags. Prices live in `product_prices` — a
+  change closes the current row (`effective_to`) and opens a new one; history
+  is viewable per product. `GET /api/products/search` backs the combobox
+  (barcode-exact wins, then FTS5 prefix match).
+- **Inventory** (`/inventory`): batch list with alert filters — low stock vs
+  `reorder_level`, expiring ≤30/60/90 days, expired on shelf — plus the
+  append-only movement ledger (`/inventory/movements`).
+- **Receiving** (`/receiving`): ad-hoc lines (product, unit, batch no, expiry,
+  qty, cost per unit). Quantities convert to integer base units; cost converts
+  to cost per base unit. Expiry in the past or inside
+  `inventory.min_shelf_life_days` (default 90) is rejected. An existing
+  `(branch, product, batch_no, expiry)` row is topped up; everything — batch,
+  movement, `controlled_register` row, audit — commits in one transaction.
+- **Adjustments** (`/adjustments`): reason-coded (`damage`, `expiry_writeoff`,
+  `count_correction`, `theft`, `sample`). The conditional UPDATE keeps
+  `qty_remaining ≥ 0` even under races. Adjustments at/above
+  `adjustments.step_up_thresholds` (`qtyBase` 500 or `valueMinor` ₱500.00 at
+  cost) require the PIN step-up before writing.
+- **CSV import** (`/products/import`): upload → per-row dry-run errors →
+  all-or-nothing commit in one transaction; template at
+  `GET /api/products/import-template`. Caps: 500 rows / 256 KB.
+- **FEFO** (`src/lib/fefo.ts`): pure `allocateFefo` + `fetchFefoCandidates`;
+  skips expired batches, splits across batches, returns `null` when short.
+  M2 checkout will call it.
+- Both settings keys are seeded; `src/lib/settings.ts` falls back to the same
+  defaults when rows are absent.
+
 ## Layout
 
 ```
 src/app/(auth)/login     sign-in page
-src/app/(app)            authenticated shell: dashboard, owner-only /users
+src/app/(app)            authenticated shell: dashboard, /products (+/new,
+                         /[id], /import), /inventory (+/movements),
+                         /receiving, /adjustments, /audit, owner-only /users
 src/app/api/health       public liveness probe
 src/app/api/auth         Better Auth handler
-src/components           shadcn/ui + app shell
+src/app/api/products     search, per-product batches, import template
+src/components           shadcn/ui + app shell, combobox, step-up dialog
 src/db/schema            Drizzle schema (one file per domain)
 src/db/seed*.ts          demo dataset + dev-only credentials
 src/db/verify.ts         schema integrity probe (tests + db:smoke)
 src/lib                  money/dates/units/roles, auth, authz, audit,
-                         rate-limit, step-up, env, request context
+                         rate-limit, step-up, env, request context,
+                         permissions, settings, tx, catalog/inventory
+                         mutations+queries, product-search, fefo,
+                         shelf-life, csv, product-import
 scripts/                 migrate, seed, reset, rebuild-fts, smoke (tsx)
 drizzle/                 generated migrations (+ hand-written SQL block)
-tests/                   integration tests (migration, seed)
+tests/                   integration tests (migration, seed, inventory)
 ```

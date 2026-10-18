@@ -8,7 +8,7 @@ import { sessions, users } from "@/db/schema/auth";
 import { recordAudit } from "@/lib/audit";
 import { requireRole } from "@/lib/authz";
 import { isRole } from "@/lib/roles";
-import { hasStepUp, verifyPin } from "@/lib/step-up";
+import { hasStepUp } from "@/lib/step-up";
 
 /**
  * Owner-only user management actions (spec §5.1 `users`, §9 role gating).
@@ -110,12 +110,4 @@ export async function setUserActiveAction(input: {
 
   revalidatePath("/users");
   return { status: "ok" };
-}
-
-export async function verifyPinAction(input: { pin: string }): Promise<UserActionResult> {
-  const actor = await requireRole("owner");
-  const result = await verifyPin(actor, input.pin);
-  return result.ok
-    ? { status: "ok" }
-    : { status: "error", message: result.error ?? "PIN verification failed." };
 }

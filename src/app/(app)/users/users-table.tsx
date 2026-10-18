@@ -2,20 +2,11 @@
 
 import { useState, useTransition } from "react";
 
+import { StepUpDialog } from "@/components/step-up-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -26,12 +17,7 @@ import {
 } from "@/components/ui/table";
 import { ROLE_LABELS, ROLES, type Role } from "@/lib/roles";
 
-import {
-  setUserActiveAction,
-  updateUserRoleAction,
-  verifyPinAction,
-  type UserActionResult,
-} from "./actions";
+import { setUserActiveAction, updateUserRoleAction, type UserActionResult } from "./actions";
 
 export interface UserRow {
   id: string;
@@ -54,15 +40,11 @@ export function UsersTable({ rows, currentUserId }: { rows: UserRow[]; currentUs
   const [error, setError] = useState<string | null>(null);
   const [draftRoles, setDraftRoles] = useState<Record<string, Role>>({});
   const [stepUpOpen, setStepUpOpen] = useState(false);
-  const [pin, setPin] = useState("");
-  const [pinError, setPinError] = useState<string | null>(null);
   const [retryAction, setRetryAction] = useState<(() => Promise<UserActionResult>) | null>(null);
 
   function handleResult(result: UserActionResult, action: () => Promise<UserActionResult>) {
     if (result.status === "step-up-required") {
       setRetryAction(() => action);
-      setPin("");
-      setPinError(null);
       setStepUpOpen(true);
     } else if (result.status === "error") {
       setError(result.message);
@@ -73,22 +55,6 @@ export function UsersTable({ rows, currentUserId }: { rows: UserRow[]; currentUs
     setError(null);
     startTransition(async () => {
       handleResult(await action(), action);
-    });
-  }
-
-  function submitPin() {
-    startTransition(async () => {
-      const result = await verifyPinAction({ pin });
-      if (result.status !== "ok") {
-        setPinError(result.status === "error" ? result.message : "PIN verification failed.");
-        return;
-      }
-      setStepUpOpen(false);
-      const action = retryAction;
-      setRetryAction(null);
-      if (action) {
-        handleResult(await action(), action);
-      }
     });
   }
 
@@ -184,52 +150,20 @@ export function UsersTable({ rows, currentUserId }: { rows: UserRow[]; currentUs
         </Table>
       </CardContent>
 
-      <Dialog
+      <StepUpDialog
         open={stepUpOpen}
         onOpenChange={(open) => {
           if (!open) setRetryAction(null);
           setStepUpOpen(open);
         }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Confirm with your PIN</DialogTitle>
-            <DialogDescription>
-              Privileged changes require your 4–6 digit PIN. The confirmation lasts 10 minutes.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="step-up-pin">PIN</Label>
-            <Input
-              id="step-up-pin"
-              type="password"
-              inputMode="numeric"
-              autoComplete="off"
-              maxLength={6}
-              value={pin}
-              onChange={(event) => setPin(event.target.value.replace(/\D/g, ""))}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") submitPin();
-              }}
-            />
-            {pinError ? <p className="text-destructive text-sm">{pinError}</p> : null}
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setStepUpOpen(false);
-                setRetryAction(null);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button onClick={submitPin} disabled={pending || pin.length < 4}>
-              {pending ? "Verifying…" : "Confirm"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        onVerified={async () => {
+          const action = retryAction;
+          setRetryAction(null);
+          if (action) {
+            handleResult(await action(), action);
+          }
+        }}
+      />
     </Card>
   );
 }

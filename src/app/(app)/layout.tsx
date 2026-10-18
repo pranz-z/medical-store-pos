@@ -2,7 +2,9 @@ import Link from "next/link";
 
 import { AppNav, type NavItem } from "@/components/app-shell/app-nav";
 import { UserMenu } from "@/components/app-shell/user-menu";
+import { QueryProvider } from "@/components/query-provider";
 import { requireUser } from "@/lib/authz";
+import { can, type Capability } from "@/lib/permissions";
 import { ROLE_LABELS, type Role } from "@/lib/roles";
 
 /**
@@ -13,15 +15,22 @@ import { ROLE_LABELS, type Role } from "@/lib/roles";
  * filtered out of the nav — the pages themselves still re-check, since nav
  * visibility is presentation, not access control.
  */
-const NAV_ITEMS: (NavItem & { roles?: Role[] })[] = [
+const NAV_ITEMS: (NavItem & { roles?: Role[]; capability?: Capability })[] = [
   { href: "/", label: "Dashboard" },
+  { href: "/products", label: "Products", capability: "catalog.view" },
+  { href: "/inventory", label: "Inventory", capability: "inventory.view" },
+  { href: "/receiving", label: "Receiving", capability: "inventory.receive" },
+  { href: "/adjustments", label: "Adjustments", capability: "inventory.adjust" },
+  { href: "/audit", label: "Audit", capability: "audit.view" },
   { href: "/users", label: "Users", roles: ["owner"] },
 ];
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   const user = await requireUser();
   const items = NAV_ITEMS.filter(
-    (item) => item.roles === undefined || item.roles.includes(user.role),
+    (item) =>
+      (item.roles === undefined || item.roles.includes(user.role)) &&
+      (item.capability === undefined || can(user.role, item.capability)),
   );
 
   return (
@@ -37,7 +46,9 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
           </div>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">{children}</main>
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
+        <QueryProvider>{children}</QueryProvider>
+      </main>
     </div>
   );
 }

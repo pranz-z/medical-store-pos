@@ -1009,5 +1009,11 @@ export function seedSettings(currency: string, timezone: string): SeedSetting[] 
         ],
       },
     },
+    // M1 knobs — `src/lib/settings.ts` falls back to these same defaults.
+    { key: "inventory.min_shelf_life_days", value: 90 },
+    {
+      key: "adjustments.step_up_thresholds",
+      value: { qtyBase: 500, valueMinor: 50_000 },
+    },
   ];
 }

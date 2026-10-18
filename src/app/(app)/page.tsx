@@ -1,15 +1,17 @@
 import { and, count, eq, gt, gte, lt, lte, sql } from "drizzle-orm";
 import type { Metadata } from "next";
 import Link from "next/link";
+import type { Route } from "next";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getDb } from "@/db/client";
 import { products } from "@/db/schema/catalog";
 import { batches } from "@/db/schema/inventory";
-import { hasRole, requireUser } from "@/lib/authz";
+import { requireUser } from "@/lib/authz";
 import { addDaysIso, todayIso } from "@/lib/dates";
 import { serverEnv } from "@/lib/env";
 import { formatMinor } from "@/lib/money";
+import { can } from "@/lib/permissions";
 import { ROLE_LABELS } from "@/lib/roles";
 
 export const metadata: Metadata = {
@@ -51,15 +53,29 @@ export default async function DashboardPage() {
       ),
   ]);
 
-  const stats = [
-    { label: "Active products", value: productStats.activeProducts.toLocaleString("en-PH") },
-    { label: "Units on hand", value: stockStats.units.toLocaleString("en-PH") },
-    { label: "Stock value (at cost)", value: formatMinor(stockStats.valueMinor, APP_CURRENCY) },
+  const inventoryReader = can(user.role, "inventory.view");
+  const stats: { label: string; value: string; href: Route }[] = [
+    {
+      label: "Active products",
+      value: productStats.activeProducts.toLocaleString("en-PH"),
+      href: "/products",
+    },
+    { label: "Units on hand", value: stockStats.units.toLocaleString("en-PH"), href: "/inventory" },
+    {
+      label: "Stock value (at cost)",
+      value: formatMinor(stockStats.valueMinor, APP_CURRENCY),
+      href: "/inventory",
+    },
     {
       label: `Expiring in ${EXPIRY_HORIZON_DAYS} days`,
       value: expiringStats.expiring.toLocaleString("en-PH"),
+      href: "/inventory?filter=exp90",
     },
-    { label: "Expired, still on hand", value: expiredStats.expired.toLocaleString("en-PH") },
+    {
+      label: "Expired, still on hand",
+      value: expiredStats.expired.toLocaleString("en-PH"),
+      href: "/inventory?filter=expired",
+    },
   ];
 
   return (
@@ -72,38 +88,38 @@ export default async function DashboardPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {stats.map((stat) => (
-          <Card key={stat.label}>
-            <CardHeader>
-              <CardDescription>{stat.label}</CardDescription>
-              <CardTitle className="text-2xl">{stat.value}</CardTitle>
-            </CardHeader>
-          </Card>
-        ))}
+        {stats.map((stat) => {
+          const card = (
+            <Card key={stat.label}>
+              <CardHeader>
+                <CardDescription>{stat.label}</CardDescription>
+                <CardTitle className="text-2xl">{stat.value}</CardTitle>
+              </CardHeader>
+            </Card>
+          );
+          return inventoryReader ? (
+            <Link key={stat.label} href={stat.href}>
+              {card}
+            </Link>
+          ) : (
+            <div key={stat.label}>{card}</div>
+          );
+        })}
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Milestone M0 — foundations in place</CardTitle>
+          <CardTitle>Milestone M1 — catalog &amp; inventory</CardTitle>
           <CardDescription>
-            Stock figures above come straight from the seeded batches and reflect the same
-            server-side calculations the POS will use.
+            Products, batches, receiving, adjustments and alerts are live. Stock figures come
+            straight from the batch table — the same numbers the POS will allocate against.
           </CardDescription>
         </CardHeader>
         <CardContent className="text-muted-foreground flex flex-col gap-2 text-sm">
-          <p>Coming in later milestones: sales/POS, purchasing &amp; receiving, reports.</p>
-          {hasRole(user, "owner") ? (
-            <p>
-              Owners can{" "}
-              <Link
-                href="/users"
-                className="text-foreground font-medium underline underline-offset-4"
-              >
-                manage staff accounts
-              </Link>
-              .
-            </p>
-          ) : null}
+          <p>
+            Coming in later milestones: POS checkout (M2), compliance register views, purchasing
+            (M4), reports.
+          </p>
         </CardContent>
       </Card>
     </div>
