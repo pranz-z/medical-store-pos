@@ -6,6 +6,8 @@
  * Money is integer minor units (centavos); quantities are integer base units.
  */
 
+import type { JsonValue } from "@/db/schema/system";
+
 export interface SeedTaxClass {
   id: string;
   name: string;
@@ -969,7 +971,7 @@ export const SEED_PRODUCTS: SeedProductData[] = [
 export interface SeedSetting {
   key: string;
   /** JSON value, stored as text. */
-  value: unknown;
+  value: JsonValue;
 }
 
 export function seedSettings(currency: string, timezone: string): SeedSetting[] {

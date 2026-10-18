@@ -242,7 +242,8 @@ export async function seedDatabase(handle: DatabaseHandle): Promise<SeedSummary>
   const settingRows = seedSettings(env.APP_CURRENCY, env.APP_TIMEZONE);
   statements.push(
     ...settingRows.map((setting) =>
-      db.insert(settings).values({ key: setting.key, value: JSON.stringify(setting.value) }),
+      // `settings.value` is a drizzle json column — it stringifies for us.
+      db.insert(settings).values({ key: setting.key, value: setting.value }),
     ),
   );
 

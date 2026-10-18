@@ -25,6 +25,13 @@ const serverEnvSchema = z.object({
   /** Secret used to sign session cookies. Required wherever traffic is served. */
   AUTH_SECRET: z.string().min(32, "AUTH_SECRET must be at least 32 characters"),
 
+  /**
+   * Public URL of the deployment. Optional: Better Auth infers it from the
+   * request when unset. Set it to the stable production domain so session
+   * cookies and redirects are absolute.
+   */
+  BETTER_AUTH_URL: optionalString,
+
   /** Vercel Blob token (prescription scans, backup dumps). Reserved for later milestones. */
   BLOB_READ_WRITE_TOKEN: optionalString,
 
