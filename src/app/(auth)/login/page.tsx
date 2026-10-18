@@ -8,7 +8,7 @@ import { getSessionUser } from "@/lib/auth/session";
 import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = {
-  title: "Sign in — Medical Store POS",
+  title: "Sign in",
 };
 
 export default async function LoginPage() {
