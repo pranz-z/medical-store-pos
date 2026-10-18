@@ -36,6 +36,12 @@ const serverEnvSchema = z.object({
 
   /** IANA timezone used for receipt dates and report day boundaries. */
   APP_TIMEZONE: z.string().min(1).default("Asia/Manila"),
+
+  /** ISO 4217 currency code used to format money amounts (minor units in the DB). */
+  APP_CURRENCY: z
+    .string()
+    .regex(/^[A-Z]{3}$/, "APP_CURRENCY must be a 3-letter ISO 4217 code (e.g. PHP)")
+    .default("PHP"),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
