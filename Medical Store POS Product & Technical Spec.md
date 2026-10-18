@@ -177,6 +177,8 @@ Conventions: all IDs are ULIDs (text); timestamps are UTC ISO-8601 text or integ
 | `settings` | key, value (JSON) |
 | `audit_log` | id, user\_id, action, entity, entity\_id, before (JSON), after (JSON), ip, request\_id, at |
 
+> Note: `po_lines.unit_cost` is per **base unit** (matching `batches.cost_per_base_unit`). Costs entered in purchase units (per box, per strip) are converted to per-base-unit values by the receiving form before they reach this column.
+
 ### 5.2 Indexes (minimum)
 
 - `product_barcodes(barcode)` unique

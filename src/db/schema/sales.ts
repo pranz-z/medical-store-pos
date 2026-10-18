@@ -72,6 +72,10 @@ export const sales = sqliteTable(
       .references(() => users.id),
     customerId: text("customer_id").references(() => customers.id),
     status: text("status").notNull().default("completed"),
+    /** Void metadata (pre-payment / same-shift voids, FR-POS-9). */
+    voidReason: text("void_reason"),
+    voidedBy: text("voided_by").references(() => users.id),
+    voidedAt: instant("voided_at"),
     /**
      * Client-supplied idempotency key (spec §6.1). Unique so a replayed checkout
      * returns the stored result instead of creating a second sale.
@@ -91,6 +95,7 @@ export const sales = sqliteTable(
     index("sales_branch_created_idx").on(table.branchId, table.createdAt),
     index("sales_customer_idx").on(table.customerId),
     index("sales_cashier_created_idx").on(table.cashierId, table.createdAt),
+    index("sales_shift_idx").on(table.shiftId),
     check(
       "sales_status_check",
       sql`${table.status} in ('completed', 'voided', 'refunded', 'partially_refunded')`,
@@ -129,6 +134,9 @@ export const saleLines = sqliteTable(
     /** Line total in minor units (after discount; tax treatment per tax class). */
     lineTotal: money("line_total").notNull(),
     prescriptionId: text("prescription_id").references(() => prescriptions.id),
+    /** Pharmacist override when an Rx-only item is sold without a recorded prescription (FR-POS-6). */
+    rxOverrideBy: text("rx_override_by").references(() => users.id),
+    rxOverrideReason: text("rx_override_reason"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -179,7 +187,7 @@ export const payments = sqliteTable(
   },
   (table) => [
     index("payments_sale_idx").on(table.saleId),
-    check("payments_method_check", sql`${table.method} in ('cash', 'card', 'ewallet')`),
+    check("payments_method_check", sql`${table.method} in ('cash', 'card', 'ewallet', 'other')`),
     check("payments_amount_check", sql`${table.amount} >= 0`),
   ],
 );
@@ -191,6 +199,12 @@ export const refunds = sqliteTable(
     saleId: text("sale_id")
       .notNull()
       .references(() => sales.id),
+    /** How the money was returned; same value set as `payments.method`. */
+    method: text("method").notNull(),
+    /** Shift during which the refund was processed. */
+    shiftId: text("shift_id").references(() => shifts.id),
+    /** User who processed the refund (may differ from the approver). */
+    processedBy: text("processed_by").references(() => users.id),
     approvedBy: text("approved_by").references(() => users.id),
     reason: text("reason"),
     total: money("total").notNull(),
@@ -199,7 +213,9 @@ export const refunds = sqliteTable(
   },
   (table) => [
     index("refunds_sale_idx").on(table.saleId),
+    index("refunds_shift_idx").on(table.shiftId),
     check("refunds_total_check", sql`${table.total} >= 0`),
+    check("refunds_method_check", sql`${table.method} in ('cash', 'card', 'ewallet', 'other')`),
   ],
 );
 

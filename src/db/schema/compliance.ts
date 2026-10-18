@@ -30,6 +30,10 @@ export const customers = sqliteTable(
   (table) => [
     index("customers_name_idx").on(table.name),
     index("customers_phone_idx").on(table.phone),
+    check(
+      "customers_dob_format_check",
+      sql`${table.dob} is null or ${table.dob} glob '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'`,
+    ),
   ],
 );
 
@@ -56,6 +60,10 @@ export const prescriptions = sqliteTable(
     check(
       "prescriptions_patient_age_check",
       sql`${table.patientAge} is null or (${table.patientAge} >= 0 and ${table.patientAge} <= 130)`,
+    ),
+    check(
+      "prescriptions_issued_on_format_check",
+      sql`${table.issuedOn} is null or ${table.issuedOn} glob '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'`,
     ),
   ],
 );

@@ -24,7 +24,8 @@ export const users = sqliteTable(
   {
     id: primaryId(),
     name: text("name").notNull(),
-    email: text("email").notNull().unique(),
+    /** Always store lowercase (app code normalizes before writes). */
+    email: text("email").notNull(),
     emailVerified: booleanFlag("email_verified", false),
     image: text("image"),
     role: text("role").notNull().default("cashier"),
@@ -36,6 +37,9 @@ export const users = sqliteTable(
     updatedAt: updatedAt(),
   },
   (table) => [
+    // COLLATE NOCASE so uniqueness holds even if a future write path forgets
+    // to lowercase (mixing "A@x.com"/"a@x.com" must fail).
+    uniqueIndex("users_email_unique").on(sql`${table.email} collate nocase`),
     index("users_branch_idx").on(table.branchId),
     index("users_role_idx").on(table.role),
     check(

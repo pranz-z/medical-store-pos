@@ -63,6 +63,10 @@ export const purchaseOrders = sqliteTable(
       "purchase_orders_status_check",
       sql`${table.status} in ('draft', 'sent', 'partially_received', 'received', 'cancelled')`,
     ),
+    check(
+      "purchase_orders_expected_date_format_check",
+      sql`${table.expectedDate} is null or ${table.expectedDate} glob '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'`,
+    ),
   ],
 );
 
@@ -79,7 +83,11 @@ export const poLines = sqliteTable(
     /** In base units. */
     qtyOrdered: integer("qty_ordered").notNull(),
     qtyReceived: integer("qty_received").notNull().default(0),
-    /** Cost in minor units per base unit (aligns with `batches.cost_per_base_unit`). */
+    /**
+     * Cost in minor units per BASE unit (aligns with `batches.cost_per_base_unit`).
+     * Purchase-unit costs (per box, per strip) are converted by the receiving
+     * form before they reach this column.
+     */
     unitCost: money("unit_cost").notNull(),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
@@ -113,5 +121,9 @@ export const supplierInvoices = sqliteTable(
     index("supplier_invoices_supplier_idx").on(table.supplierId, table.dueDate),
     index("supplier_invoices_paid_idx").on(table.paidAt),
     check("supplier_invoices_amount_check", sql`${table.amount} >= 0`),
+    check(
+      "supplier_invoices_due_date_format_check",
+      sql`${table.dueDate} is null or ${table.dueDate} glob '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'`,
+    ),
   ],
 );

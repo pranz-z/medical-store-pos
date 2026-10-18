@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, index, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { check, index, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 import { users } from "./auth";
 import { products } from "./catalog";
@@ -13,6 +13,11 @@ import { suppliers } from "./purchasing";
  * `batches` carries the CHECK that stock can never go negative.
  * `stock_movements` is append-only: UPDATE/DELETE are blocked by triggers
  * created in the migration.
+ *
+ * Receiving an existing batch (same branch + product + batch_no + expiry)
+ * tops up that row (`qty_received`/`qty_remaining` increase) and writes a
+ * `stock_movements` row — it never inserts a duplicate batch row; the unique
+ * index below enforces this.
  */
 
 export const batches = sqliteTable(
@@ -39,6 +44,13 @@ export const batches = sqliteTable(
     updatedAt: updatedAt(),
   },
   (table) => [
+    // One row per physical batch: receiving the same batch again tops it up.
+    uniqueIndex("batches_branch_product_batch_expiry_uq").on(
+      table.branchId,
+      table.productId,
+      table.batchNo,
+      table.expiryDate,
+    ),
     // FEFO lookups (spec §5.2): earliest expiry first, only batches with stock left.
     index("batches_fefo_idx")
       .on(table.productId, table.branchId, table.expiryDate)
@@ -49,6 +61,10 @@ export const batches = sqliteTable(
     check("batches_qty_remaining_nonnegative", sql`${table.qtyRemaining} >= 0`),
     check("batches_qty_received_nonnegative", sql`${table.qtyReceived} >= 0`),
     check("batches_cost_per_base_unit_check", sql`${table.costPerBaseUnit} >= 0`),
+    check(
+      "batches_expiry_date_format_check",
+      sql`${table.expiryDate} glob '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'`,
+    ),
   ],
 );
 
@@ -78,6 +94,17 @@ export const stockMovements = sqliteTable(
     check(
       "stock_movements_type_check",
       sql`${table.type} in ('receipt', 'sale', 'return', 'adjust', 'transfer', 'writeoff')`,
+    ),
+    check("stock_movements_qty_delta_check", sql`${table.qtyDelta} <> 0`),
+    // Directional integrity: sales/writeoffs always decrease, receipts/returns
+    // always increase, adjustments/transfers may go either way.
+    check(
+      "stock_movements_sign_check",
+      sql`(
+        (${table.type} in ('sale', 'writeoff') and ${table.qtyDelta} < 0)
+        or (${table.type} in ('receipt', 'return') and ${table.qtyDelta} > 0)
+        or (${table.type} in ('adjust', 'transfer'))
+      )`,
     ),
   ],
 );

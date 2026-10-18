@@ -57,7 +57,7 @@ CREATE TABLE `users` (
 	CONSTRAINT "users_role_check" CHECK("users"."role" in ('owner', 'manager', 'pharmacist', 'cashier', 'auditor'))
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `users_email_unique` ON `users` (`email`);--> statement-breakpoint
+CREATE UNIQUE INDEX `users_email_unique` ON `users` ("email" collate nocase);--> statement-breakpoint
 CREATE INDEX `users_branch_idx` ON `users` (`branch_id`);--> statement-breakpoint
 CREATE INDEX `users_role_idx` ON `users` (`role`);--> statement-breakpoint
 CREATE TABLE `verifications` (
@@ -193,7 +193,8 @@ CREATE TABLE `purchase_orders` (
 	FOREIGN KEY (`branch_id`) REFERENCES `branches`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`supplier_id`) REFERENCES `suppliers`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`created_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action,
-	CONSTRAINT "purchase_orders_status_check" CHECK("purchase_orders"."status" in ('draft', 'sent', 'partially_received', 'received', 'cancelled'))
+	CONSTRAINT "purchase_orders_status_check" CHECK("purchase_orders"."status" in ('draft', 'sent', 'partially_received', 'received', 'cancelled')),
+	CONSTRAINT "purchase_orders_expected_date_format_check" CHECK("purchase_orders"."expected_date" is null or "purchase_orders"."expected_date" glob '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')
 );
 --> statement-breakpoint
 CREATE INDEX `purchase_orders_branch_idx` ON `purchase_orders` (`branch_id`,`created_at`);--> statement-breakpoint
@@ -210,7 +211,8 @@ CREATE TABLE `supplier_invoices` (
 	`updated_at` integer NOT NULL,
 	FOREIGN KEY (`supplier_id`) REFERENCES `suppliers`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`po_id`) REFERENCES `purchase_orders`(`id`) ON UPDATE no action ON DELETE no action,
-	CONSTRAINT "supplier_invoices_amount_check" CHECK("supplier_invoices"."amount" >= 0)
+	CONSTRAINT "supplier_invoices_amount_check" CHECK("supplier_invoices"."amount" >= 0),
+	CONSTRAINT "supplier_invoices_due_date_format_check" CHECK("supplier_invoices"."due_date" is null or "supplier_invoices"."due_date" glob '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')
 );
 --> statement-breakpoint
 CREATE INDEX `supplier_invoices_supplier_idx` ON `supplier_invoices` (`supplier_id`,`due_date`);--> statement-breakpoint
@@ -247,9 +249,11 @@ CREATE TABLE `batches` (
 	FOREIGN KEY (`supplier_id`) REFERENCES `suppliers`(`id`) ON UPDATE no action ON DELETE no action,
 	CONSTRAINT "batches_qty_remaining_nonnegative" CHECK("batches"."qty_remaining" >= 0),
 	CONSTRAINT "batches_qty_received_nonnegative" CHECK("batches"."qty_received" >= 0),
-	CONSTRAINT "batches_cost_per_base_unit_check" CHECK("batches"."cost_per_base_unit" >= 0)
+	CONSTRAINT "batches_cost_per_base_unit_check" CHECK("batches"."cost_per_base_unit" >= 0),
+	CONSTRAINT "batches_expiry_date_format_check" CHECK("batches"."expiry_date" glob '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')
 );
 --> statement-breakpoint
+CREATE UNIQUE INDEX `batches_branch_product_batch_expiry_uq` ON `batches` (`branch_id`,`product_id`,`batch_no`,`expiry_date`);--> statement-breakpoint
 CREATE INDEX `batches_fefo_idx` ON `batches` (`product_id`,`branch_id`,`expiry_date`) WHERE "batches"."qty_remaining" > 0;--> statement-breakpoint
 CREATE INDEX `batches_expiry_idx` ON `batches` (`branch_id`,`expiry_date`);--> statement-breakpoint
 CREATE INDEX `batches_supplier_idx` ON `batches` (`supplier_id`);--> statement-breakpoint
@@ -266,7 +270,13 @@ CREATE TABLE `stock_movements` (
 	`created_at` integer NOT NULL,
 	FOREIGN KEY (`batch_id`) REFERENCES `batches`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action,
-	CONSTRAINT "stock_movements_type_check" CHECK("stock_movements"."type" in ('receipt', 'sale', 'return', 'adjust', 'transfer', 'writeoff'))
+	CONSTRAINT "stock_movements_type_check" CHECK("stock_movements"."type" in ('receipt', 'sale', 'return', 'adjust', 'transfer', 'writeoff')),
+	CONSTRAINT "stock_movements_qty_delta_check" CHECK("stock_movements"."qty_delta" <> 0),
+	CONSTRAINT "stock_movements_sign_check" CHECK((
+        ("stock_movements"."type" in ('sale', 'writeoff') and "stock_movements"."qty_delta" < 0)
+        or ("stock_movements"."type" in ('receipt', 'return') and "stock_movements"."qty_delta" > 0)
+        or ("stock_movements"."type" in ('adjust', 'transfer'))
+      ))
 );
 --> statement-breakpoint
 CREATE INDEX `stock_movements_batch_at_idx` ON `stock_movements` (`batch_id`,`at`);--> statement-breakpoint
@@ -298,7 +308,8 @@ CREATE TABLE `customers` (
 	`allergies` text,
 	`notes` text,
 	`created_at` integer NOT NULL,
-	`updated_at` integer NOT NULL
+	`updated_at` integer NOT NULL,
+	CONSTRAINT "customers_dob_format_check" CHECK("customers"."dob" is null or "customers"."dob" glob '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')
 );
 --> statement-breakpoint
 CREATE INDEX `customers_name_idx` ON `customers` (`name`);--> statement-breakpoint
@@ -332,7 +343,8 @@ CREATE TABLE `prescriptions` (
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
 	FOREIGN KEY (`customer_id`) REFERENCES `customers`(`id`) ON UPDATE no action ON DELETE no action,
-	CONSTRAINT "prescriptions_patient_age_check" CHECK("prescriptions"."patient_age" is null or ("prescriptions"."patient_age" >= 0 and "prescriptions"."patient_age" <= 130))
+	CONSTRAINT "prescriptions_patient_age_check" CHECK("prescriptions"."patient_age" is null or ("prescriptions"."patient_age" >= 0 and "prescriptions"."patient_age" <= 130)),
+	CONSTRAINT "prescriptions_issued_on_format_check" CHECK("prescriptions"."issued_on" is null or "prescriptions"."issued_on" glob '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')
 );
 --> statement-breakpoint
 CREATE INDEX `prescriptions_customer_idx` ON `prescriptions` (`customer_id`);--> statement-breakpoint
@@ -346,7 +358,7 @@ CREATE TABLE `payments` (
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
 	FOREIGN KEY (`sale_id`) REFERENCES `sales`(`id`) ON UPDATE no action ON DELETE no action,
-	CONSTRAINT "payments_method_check" CHECK("payments"."method" in ('cash', 'card', 'ewallet')),
+	CONSTRAINT "payments_method_check" CHECK("payments"."method" in ('cash', 'card', 'ewallet', 'other')),
 	CONSTRAINT "payments_amount_check" CHECK("payments"."amount" >= 0)
 );
 --> statement-breakpoint
@@ -389,17 +401,24 @@ CREATE INDEX `refund_lines_sale_line_idx` ON `refund_lines` (`sale_line_id`);-->
 CREATE TABLE `refunds` (
 	`id` text PRIMARY KEY NOT NULL,
 	`sale_id` text NOT NULL,
+	`method` text NOT NULL,
+	`shift_id` text,
+	`processed_by` text,
 	`approved_by` text,
 	`reason` text,
 	`total` integer NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
 	FOREIGN KEY (`sale_id`) REFERENCES `sales`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`shift_id`) REFERENCES `shifts`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`processed_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`approved_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action,
-	CONSTRAINT "refunds_total_check" CHECK("refunds"."total" >= 0)
+	CONSTRAINT "refunds_total_check" CHECK("refunds"."total" >= 0),
+	CONSTRAINT "refunds_method_check" CHECK("refunds"."method" in ('cash', 'card', 'ewallet', 'other'))
 );
 --> statement-breakpoint
 CREATE INDEX `refunds_sale_idx` ON `refunds` (`sale_id`);--> statement-breakpoint
+CREATE INDEX `refunds_shift_idx` ON `refunds` (`shift_id`);--> statement-breakpoint
 CREATE TABLE `sale_discounts` (
 	`id` text PRIMARY KEY NOT NULL,
 	`sale_id` text NOT NULL,
@@ -426,6 +445,8 @@ CREATE TABLE `sale_lines` (
 	`tax_amount` integer DEFAULT 0 NOT NULL,
 	`line_total` integer NOT NULL,
 	`prescription_id` text,
+	`rx_override_by` text,
+	`rx_override_reason` text,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
 	FOREIGN KEY (`sale_id`) REFERENCES `sales`(`id`) ON UPDATE no action ON DELETE no action,
@@ -433,6 +454,7 @@ CREATE TABLE `sale_lines` (
 	FOREIGN KEY (`batch_id`) REFERENCES `batches`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`unit_id`) REFERENCES `product_units`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`prescription_id`) REFERENCES `prescriptions`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`rx_override_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action,
 	CONSTRAINT "sale_lines_qty_base_check" CHECK("sale_lines"."qty_base" > 0),
 	CONSTRAINT "sale_lines_unit_price_check" CHECK("sale_lines"."unit_price" >= 0),
 	CONSTRAINT "sale_lines_discount_check" CHECK("sale_lines"."discount" >= 0)
@@ -449,6 +471,9 @@ CREATE TABLE `sales` (
 	`cashier_id` text NOT NULL,
 	`customer_id` text,
 	`status` text DEFAULT 'completed' NOT NULL,
+	`void_reason` text,
+	`voided_by` text,
+	`voided_at` integer,
 	`idempotency_key` text NOT NULL,
 	`subtotal` integer NOT NULL,
 	`discount_total` integer DEFAULT 0 NOT NULL,
@@ -461,6 +486,7 @@ CREATE TABLE `sales` (
 	FOREIGN KEY (`shift_id`) REFERENCES `shifts`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`cashier_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action,
 	FOREIGN KEY (`customer_id`) REFERENCES `customers`(`id`) ON UPDATE no action ON DELETE no action,
+	FOREIGN KEY (`voided_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE no action,
 	CONSTRAINT "sales_status_check" CHECK("sales"."status" in ('completed', 'voided', 'refunded', 'partially_refunded'))
 );
 --> statement-breakpoint
@@ -469,6 +495,7 @@ CREATE UNIQUE INDEX `sales_branch_receipt_uq` ON `sales` (`branch_id`,`receipt_n
 CREATE INDEX `sales_branch_created_idx` ON `sales` (`branch_id`,`created_at`);--> statement-breakpoint
 CREATE INDEX `sales_customer_idx` ON `sales` (`customer_id`);--> statement-breakpoint
 CREATE INDEX `sales_cashier_created_idx` ON `sales` (`cashier_id`,`created_at`);--> statement-breakpoint
+CREATE INDEX `sales_shift_idx` ON `sales` (`shift_id`);--> statement-breakpoint
 CREATE TABLE `shifts` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,
@@ -521,10 +548,15 @@ CREATE TABLE `settings` (
 	`updated_at` integer NOT NULL
 );
 --> statement-breakpoint
+
 -- ============================================================================
 -- Hand-written additions (not expressible in the Drizzle schema DSL):
---   1) `products_fts`: FTS5 full-text index over products.name / generic_name /
---      sku for POS search (spec §5.2), kept in sync by triggers.
+--   1) `products_fts`: standalone FTS5 full-text index over products.name /
+--      generic_name / sku for POS search (spec §5.2), kept in sync by the
+--      triggers below. `product_id` is stored UNINDEXED and is the query key;
+--      rowid is deliberately NOT used, because VACUUM can renumber rowids on
+--      tables with a TEXT primary key. If the index ever drifts (e.g. after a
+--      bulk import with triggers disabled), run `npm run db:fts:rebuild`.
 --   2) Append-only enforcement triggers for `stock_movements`,
 --      `controlled_register` and `audit_log` (spec §5.3).
 -- Never edit an applied migration; add a new one instead.
@@ -533,26 +565,23 @@ CREATE VIRTUAL TABLE `products_fts` USING fts5(
 	`name`,
 	`generic_name`,
 	`sku`,
-	content = 'products',
-	content_rowid = 'rowid',
+	`product_id` UNINDEXED,
 	tokenize = "unicode61 remove_diacritics 2"
 );
 --> statement-breakpoint
 CREATE TRIGGER `products_fts_ai` AFTER INSERT ON `products` BEGIN
-	INSERT INTO `products_fts` (`rowid`, `name`, `generic_name`, `sku`)
-	VALUES (new.`rowid`, new.`name`, new.`generic_name`, new.`sku`);
+	INSERT INTO `products_fts` (`name`, `generic_name`, `sku`, `product_id`)
+	VALUES (new.`name`, new.`generic_name`, new.`sku`, new.`id`);
 END;
 --> statement-breakpoint
 CREATE TRIGGER `products_fts_ad` AFTER DELETE ON `products` BEGIN
-	INSERT INTO `products_fts` (`products_fts`, `rowid`, `name`, `generic_name`, `sku`)
-	VALUES ('delete', old.`rowid`, old.`name`, old.`generic_name`, old.`sku`);
+	DELETE FROM `products_fts` WHERE `product_id` = old.`id`;
 END;
 --> statement-breakpoint
 CREATE TRIGGER `products_fts_au` AFTER UPDATE ON `products` BEGIN
-	INSERT INTO `products_fts` (`products_fts`, `rowid`, `name`, `generic_name`, `sku`)
-	VALUES ('delete', old.`rowid`, old.`name`, old.`generic_name`, old.`sku`);
-	INSERT INTO `products_fts` (`rowid`, `name`, `generic_name`, `sku`)
-	VALUES (new.`rowid`, new.`name`, new.`generic_name`, new.`sku`);
+	DELETE FROM `products_fts` WHERE `product_id` = old.`id`;
+	INSERT INTO `products_fts` (`name`, `generic_name`, `sku`, `product_id`)
+	VALUES (new.`name`, new.`generic_name`, new.`sku`, new.`id`);
 END;
 --> statement-breakpoint
 CREATE TRIGGER `stock_movements_append_only_update` BEFORE UPDATE ON `stock_movements` BEGIN
@@ -578,4 +607,3 @@ END;
 CREATE TRIGGER `audit_log_append_only_delete` BEFORE DELETE ON `audit_log` BEGIN
 	SELECT RAISE(ABORT, 'audit_log is append-only');
 END;
-
