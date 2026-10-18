@@ -81,6 +81,11 @@ export const sales = sqliteTable(
      * returns the stored result instead of creating a second sale.
      */
     idempotencyKey: text("idempotency_key").notNull().unique(),
+    /**
+     * SHA-256 of the canonical request payload. A replay with the same key but
+     * a different payload (or a different cashier) is a 409 conflict.
+     */
+    requestHash: text("request_hash"),
     subtotal: money("subtotal").notNull(),
     discountTotal: money("discount_total").notNull().default(0),
     taxTotal: money("tax_total").notNull().default(0),
@@ -150,6 +155,46 @@ export const saleLines = sqliteTable(
   ],
 );
 
+/**
+ * Named discount types (FR-POS-5, spec §3.1). Jurisdiction rules are NOT
+ * hard-coded — the owner configures eligibility, tax treatment and caps here
+ * (seed rows are generic examples only).
+ */
+export const discountTypes = sqliteTable(
+  "discount_types",
+  {
+    id: primaryId(),
+    name: text("name").notNull().unique(),
+    /** Discount rate in basis points (2000 = 20.00%). */
+    percentBp: integer("percent_bp").notNull(),
+    /**
+     * `standard`: discount reduces the price; VAT still applies to the net.
+     * `vat_exempt`: eligible lines are removed from the VAT base entirely.
+     */
+    taxTreatment: text("tax_treatment").notNull().default("standard"),
+    requiresIdReference: booleanFlag("requires_id_reference", false),
+    requiresCustomerName: booleanFlag("requires_customer_name", false),
+    /**
+     * Eligibility scope as JSON: `{ categories?: string[]; flags?: string[] }`.
+     * Absent/empty means the discount applies to all lines. Flags are product
+     * boolean columns (`requires_rx`, `controlled`, `cold_chain`).
+     */
+    appliesTo: text("applies_to", { mode: "json" }),
+    /** Per-transaction cap in minor units; null = uncapped. */
+    capMinor: money("cap_minor"),
+    active: booleanFlag("active", true),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (table) => [
+    check("discount_types_percent_bp_check", sql`${table.percentBp} >= 0 and ${table.percentBp} <= 10000`),
+    check(
+      "discount_types_tax_treatment_check",
+      sql`${table.taxTreatment} in ('standard', 'vat_exempt')`,
+    ),
+  ],
+);
+
 export const saleDiscounts = sqliteTable(
   "sale_discounts",
   {
@@ -157,16 +202,21 @@ export const saleDiscounts = sqliteTable(
     saleId: text("sale_id")
       .notNull()
       .references(() => sales.id),
-    /** Discount type id from settings (senior_citizen, disability, staff, promo, ...). */
+    /** Configured type (nullable: manual discounts have no type row). */
+    discountTypeId: text("discount_type_id").references(() => discountTypes.id),
+    /** Type name snapshot (kept even if the type is later renamed/deactivated). */
     type: text("type").notNull(),
     /** ID reference presented for eligibility (spec FR-POS-5). */
     idReference: text("id_reference"),
+    /** Customer name when the type requires it (e.g. senior citizen name). */
+    customerName: text("customer_name"),
     amount: money("amount").notNull().default(0),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (table) => [
     index("sale_discounts_sale_idx").on(table.saleId),
+    index("sale_discounts_type_idx").on(table.discountTypeId),
     check("sale_discounts_amount_check", sql`${table.amount} >= 0`),
   ],
 );

@@ -57,6 +57,11 @@ export const products = sqliteTable(
     controlledSchedule: text("controlled_schedule"),
     coldChain: booleanFlag("cold_chain", false),
     sellableLoose: booleanFlag("sellable_loose", true),
+    /**
+     * Whether a returned item may go back on the shelf (FR-POS-9). Defaults
+     * true; migration 0002 backfills 0 for existing cold-chain rows.
+     */
+    resellable: booleanFlag("resellable", true),
     storageNotes: text("storage_notes"),
     /** Reorder threshold in base units. */
     reorderLevel: integer("reorder_level").notNull().default(0),

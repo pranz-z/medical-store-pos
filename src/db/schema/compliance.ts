@@ -43,7 +43,10 @@ export const prescriptions = sqliteTable(
     id: primaryId(),
     customerId: text("customer_id").references(() => customers.id),
     patientName: text("patient_name").notNull(),
+    /** Age OR date of birth (spec §3.4) — either may be supplied. */
     patientAge: integer("patient_age"),
+    /** ISO `YYYY-MM-DD`. */
+    patientDob: calendarDate("patient_dob"),
     prescriberName: text("prescriber_name"),
     prescriberLicense: text("prescriber_license"),
     /** ISO `YYYY-MM-DD` the prescription was issued. */
